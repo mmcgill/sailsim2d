@@ -12,7 +12,10 @@
      [:script {:src "/static/sailsim2d.js"}]
      [:title "SailSim 2D"]]
     [:body
-     [:h1 "SailSim 2D"]]]))
+     [:h1 "SailSim 2D"]
+     [:div {:style "display:none;"}
+      [:img {:id "boat" :src "/static/boat.jpg"}]]
+     [:canvas {:id "sailsim_canvas" :width "640" :height "480" :style "border:1px dotted;"}]]]))
 
 (defroutes app
   (GET "/"           [] index)
