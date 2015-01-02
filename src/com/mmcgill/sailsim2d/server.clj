@@ -121,8 +121,11 @@ and game states go from server to clients.
          (reduce-kv m/add-boat state)
          (#(reduce m/remove-boat % dropped-clients)))))
 
-(defn busy-wait-until [nano-time]
-  (loop []
+(defn wait-until [nano-time]
+  (let [millis (/ (- nano-time (System/nanoTime)) 1000000.0)]
+    (when (> millis 0)
+      (Thread/sleep millis)))
+  #_(loop []
     (when (< (System/nanoTime) nano-time)
       (recur))))
 
@@ -143,7 +146,7 @@ and game states go from server to clients.
                                    m/tick)]
                 (broadcast client-mgr ["state" next-state])
                 ;; TODO: this busy-wait is dumb, we could be processing messages here
-                (busy-wait-until (+ start-nanos (long (* m/secs-per-tick 1000000000))))
+                (wait-until (+ start-nanos (long (* m/secs-per-tick 1000000000))))
                 (recur next-state)))))
         (catch Throwable ex
           (st/print-cause-trace ex)))
