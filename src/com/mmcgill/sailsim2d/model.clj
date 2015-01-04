@@ -37,6 +37,21 @@
 (defn remove-boat [game-state id]
   (update-in game-state [:boats] dissoc id))
 
+(defn vadd [[x1 y1] [x2 y2]] [(+ x1 x2) (+ y1 y2)])
+(defn vsub [[x1 y1] [x2 y2]] [(- x1 x2) (- y1 y2)])
+(defn vmul [[x1 y1] [x2 y2]] [(* x1 x2) (* y1 y2)])
+(defn vdiv [[x1 y1] [x2 y2]] [(/ x1 x2) (/ y1 y2)])
+(defn vrot [[x y] theta]
+  (let [a (Math/sin theta), b (Math/cos theta)]
+    [(- (* x b) (* y a)), (+ (* x a) (* y b))]))
+(defn vangle [[x y]] (Math/atan2 y x))
+(defn todeg [rad] (Math/toDegrees rad))
+(defn vmag [[x y]] (Math/sqrt (+ (* x x) (* y y))))
+
+(def rudder-coefficient "Scales the rudder torque"      1.5)
+(def rotation-damping   "Damps rotation of the boat"    1.5)
+(def linear-damping     "Damps velocity of the boat"    0.5)
+
 (defn compute-drag
   "Compute force of drag as a vector: (* (1/2) rho v v (cd theta)),
    where theta is the angle of v.
@@ -45,16 +60,15 @@
    v:     relative velocity of fluid as a vector
    theta: orientation of the solid body
    cda:   [theta -> drag coefficient * area]"
-  [rho v theta cda]
-  (let [[x y] v
-        fluid-theta (- (Math/atan2 y x) theta)
-        k (* 0.5 rho (cda fluid-theta))]
-    [(* k x x) (* k y y)]))
+  [rho [x y] theta cda]
+  (let [fluid-theta (Math/atan2 y x)
+        fmag (* 0.5 rho (cda (- fluid-theta theta)) (+ (* x x) (* y y)))]
+    (vrot [fmag 0] fluid-theta)))
 
 (defn hull-cda [theta]
   ;; TODO: Use interpolation and pre-calculated table for hull shape
   (let [k (Math/cos (+ (* 2 theta) Math/PI))]
-    (+ 1.5 (* k (+ 2.2 (* 0.8 k))))))
+    (/ (+ 1.5 (* k (+ 2.2 (* 0.8 k)))) 5.0)))
 
 (defn sail-cda [theta]
   ;; TODO: Use interpolation and pre-calculated table for sail shape
@@ -68,20 +82,6 @@
   http://en.wikipedia.org/wiki/List_of_moments_of_inertia"
   [l m]
   (/ (* m l l) 12))
-
-(defn vadd [[x1 y1] [x2 y2]] [(+ x1 x2) (+ y1 y2)])
-(defn vsub [[x1 y1] [x2 y2]] [(- x1 x2) (- y1 y2)])
-(defn vmul [[x1 y1] [x2 y2]] [(* x1 x2) (* y1 y2)])
-(defn vdiv [[x1 y1] [x2 y2]] [(/ x1 x2) (/ y1 y2)])
-(defn vrot [[x y] theta]
-  (let [a (Math/sin theta), b (Math/cos theta)]
-    [(- (* x b) (* y a)), (+ (* x a) (* y b))]))
-(defn vangle [[x y]] (Math/atan2 y x))
-(defn todeg [rad] (Math/toDegrees rad))
-(defn vmag [[x y]] (Math/sqrt (+ (* x x) (* y y))))
-
-(def rudder-coefficient "Scales the rudder torque"      0.05)
-(def rotation-damping   "Damps rotation of the boat"    1.5)
 
 (defn rudder-torque [r current rudder-theta]
   (let [theta (- rudder-theta (vangle current))
@@ -98,7 +98,8 @@
         t (+ tr td)
         fh (compute-drag water-rho current theta hull-cda)
         ;_ (prn :fh fh)
-        f fh
+        fd (vsub [0 0] (vmul v [linear-damping linear-damping]))
+        f (vadd fh fd)
 
         ;; rotational dynamics
         alpha (/ t (moment-of-inertia length mass))
@@ -106,11 +107,11 @@
         theta (+ theta (* secs-per-tick omega))
 
         ;; linear dynamics
-        ;;a (vdiv f [mass mass])
-        ;;v (vadd v (vmul a [secs-per-tick secs-per-tick]))
+        a (vdiv f [mass mass])
+        v (vadd v (vmul a [secs-per-tick secs-per-tick]))
         pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))]
     (assoc boat
-           ;;:pos pos :v v :a a
+           :pos pos :v v :a a
            :theta theta :omega omega :alpha alpha)))
 
 (defn tick-boats [game-state boats]
