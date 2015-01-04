@@ -35,6 +35,26 @@ var sailsim = (function () {
     my.socket.onclose = function (e) {
         console.log("Connection to server has closed.");
     };
+    function sendMsg(tag,body) {
+        my.socket.send(JSON.stringify([tag, body]));
+    }
+
+    ////////////////////////////////////////////
+    // keyboard input
+    var PI = 3.14159;
+    window.addEventListener('keydown', function (e) {
+        switch (e.keyCode) {
+        case 37: sendMsg("set-rudder-theta", PI/4); break;
+        case 39: sendMsg("set-rudder-theta", -PI/4); break;
+        }
+    });
+    window.addEventListener('keyup', function (e) {
+        switch (e.keyCode) {
+        case 37: sendMsg("set-rudder-theta", 0); break;
+        case 39: sendMsg("set-rudder-theta", 0); break;
+        }
+    });
+       
 
     ////////////////////////////////////////////
     // Rendering
@@ -45,19 +65,41 @@ var sailsim = (function () {
         ctx.lineTo(x2, y2);
         ctx.stroke();
     }
+
+    function clampToGrid(n,size) {
+        return Math.floor(n/size)*size;
+    }
+
+    function drawVectorGrid(ctx, center, size, v) {
+        var screenWidthInMeters = ctx.canvas.width / my.pixelsPerMeter;
+        var screenHeightInMeters = ctx.canvas.height / my.pixelsPerMeter;
+        var startX = clampToGrid(center[0]-(screenWidthInMeters/2), size);
+        var startY = clampToGrid(center[1]-(screenHeightInMeters/2), size);
+        var cols = Math.ceil(screenWidthInMeters/size);
+        var rows = Math.ceil(screenHeightInMeters/size);
+        for (var i = 0; i <= cols; i++) {
+            var x = startX + (i * size);
+            for (var j = 0; j <= rows; j++) {
+                var y = startY + (j * size);
+                drawArrow(ctx, x, y, x+v[0], y+v[1]);
+            }
+        }
+    }
     
     function drawBoat (ctx, boat) {
         var posx=boat.pos[0], posy=boat.pos[1], vx=boat.v[0], vy=boat.v[1];
         ctx.save();
+        ctx.translate(posx,posy);
         ctx.rotate(boat.theta);
-        ctx.drawImage(document.getElementById("boat"), posx-1.8, posy-0.7, 3.6, 1.4);
+        ctx.drawImage(document.getElementById("boat"), -1.8, -0.7, 3.6, 1.4);
         ctx.restore();
         // draw velocity
         ctx.strokeStyle = "red";
-        ctx.lineWidth = 0.1;
+        ctx.lineWidth = 1/my.pixelsPerMeter;
         drawArrow(ctx, posx, posy, posx+vx, posy+vy);
     }
     
+    my.pixelsPerMeter = 20;
     function drawFrame (timestamp) {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
         ctx.save();
@@ -67,9 +109,13 @@ var sailsim = (function () {
             var posx=b.pos[0], posy=b.pos[1];
             ctx.strokeText("x: " + String(posx).substring(0,5) +
                            " y: " + String(posy).substring(0,5), 10, 30);
-            ctx.translate(ctx.canvas.width/2.0 - posx*10, ctx.canvas.height/2.0 - posy*10);
-            //ctx.translate(posx, posy);
-            ctx.scale(10, 10); // 10 pixels per meter
+            ctx.translate(ctx.canvas.width/2.0 - posx*my.pixelsPerMeter,
+                          ctx.canvas.height/2.0 - posy*my.pixelsPerMeter);
+            ctx.scale(my.pixelsPerMeter, my.pixelsPerMeter);
+            // draw water current on a grid with vertices on multiples of 50 meters
+            ctx.strokeStyle = "blue";
+            ctx.lineWidth = 1/my.pixelsPerMeter;
+            drawVectorGrid(ctx, b.pos, 10, my.state.current);
             for (var id in my.state.boats) {
                 drawBoat(ctx, my.state.boats[id]);
             }

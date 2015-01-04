@@ -2,6 +2,7 @@
   (:require [org.httpkit.server :as httpkit]
             [clojure.core.async :as async]
             [clojure.data.json :as json]
+            [clojure.stacktrace :as st]
             [com.mmcgill.sailsim2d.server :as server]))
 
 (defn encode-msg [msg]
@@ -19,7 +20,10 @@
         (httpkit/send! channel (encode-msg ["id" id]))
         (swap! client-map assoc id {:to-client to-client, :websocket channel})
         (httpkit/on-receive channel (fn [msg]
-                                      (async/>!! from-clients [id (decode-msg msg)])))
+                                      (try
+                                        (async/>!! from-clients [id (decode-msg msg)])
+                                        (catch Throwable ex
+                                          (st/print-cause-trace ex)))))
         (httpkit/on-close   channel (fn [status]
                                       (swap! client-map dissoc id)
                                       (async/close! to-client)))

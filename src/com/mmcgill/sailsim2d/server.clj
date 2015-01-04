@@ -97,7 +97,14 @@ and game states go from server to clients.
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (def message-handlers
-  {})
+  {"set-rudder-theta"
+   (fn [state id theta]
+     (when (get-in state [:boats id])
+       (let [theta (cond
+                     (> theta (/ Math/PI 4)) (/ Math/PI 4)
+                     (< theta (/ Math/PI -4)) (/ Math/PI -4)
+                     :else theta)]
+         (assoc-in state [:boats id :rudder-theta] theta))))})
 
 (defn process-message
   [state [id [tag body]]]

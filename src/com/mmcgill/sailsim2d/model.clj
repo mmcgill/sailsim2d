@@ -48,7 +48,7 @@
 (defn todeg [rad] (Math/toDegrees rad))
 (defn vmag [[x y]] (Math/sqrt (+ (* x x) (* y y))))
 
-(def rudder-coefficient "Scales the rudder torque"      1.5)
+(def rudder-coefficient "Scales the rudder torque"      10#_1.5)
 (def rotation-damping   "Damps rotation of the boat"    1.5)
 (def linear-damping     "Damps velocity of the boat"    0.5)
 
@@ -68,7 +68,7 @@
 (defn hull-cda [theta]
   ;; TODO: Use interpolation and pre-calculated table for hull shape
   (let [k (Math/cos (+ (* 2 theta) Math/PI))]
-    (/ (+ 1.5 (* k (+ 2.2 (* 0.8 k)))) 5.0)))
+    (/ (+ 1.5 (* k (+ 2.2 (* 0.8 k)))) 6.0)))
 
 (defn sail-cda [theta]
   ;; TODO: Use interpolation and pre-calculated table for sail shape
@@ -98,8 +98,10 @@
         t (+ tr td)
         fh (compute-drag water-rho current theta hull-cda)
         ;_ (prn :fh fh)
+        fm (vrot [(* 2 mass) 0] theta)        ; TEMP: motor
+        ;;fm [0 0]
         fd (vsub [0 0] (vmul v [linear-damping linear-damping]))
-        f (vadd fh fd)
+        f (vadd (vadd fh fd) fm)
 
         ;; rotational dynamics
         alpha (/ t (moment-of-inertia length mass))
