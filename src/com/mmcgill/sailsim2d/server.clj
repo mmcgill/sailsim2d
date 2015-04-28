@@ -31,16 +31,13 @@ and game states go from server to clients.
   (send-to-client [this id msg] "Send message to client")
   (shutdown [this] "Disconnect all clients and free resources"))
 
-(defprotocol Server
-  (send-to-server [this id msg]))
-
-(defprotocol InProcessServer
-  (connect [this id handler])
-  (disconnect [this id]))
-
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; In-processes server
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defprotocol InProcessServer
+  (connect [this] "Returns {:from-client <chan> :to-client <chan>}"))
+
 (defn pop-n [q n]
   (if (> n 0)
     (recur (pop q) (dec n))
@@ -57,40 +54,37 @@ and game states go from server to clients.
           (swap! client-msgs pop-n (count msgs))
           msgs))
       (broadcast [_ msg]
-        (doseq [ch (vals @client-map)]
-          (async/>!! ch msg)))
+        (doseq [{:keys [out-ch]} (vals @client-map)]
+          (async/>!! out-ch msg)))
       (send-to-client [_ id msg]
-        (when-let [ch (get @client-map id)]
-          (async/>!! ch msg)))
+        (when-let [{:keys [out-ch]} (get @client-map id)]
+          (async/>!! out-ch msg)))
       (shutdown [_]
         (doseq [ch (vals @client-map)]
           (async/close! ch))
         (reset! client-map nil)
         (reset! client-msgs nil))
 
-      Server
-      (send-to-server [_ id msg]
-        (swap! client-msgs conj [id msg]))
-
       InProcessServer
-      (connect [_ id handler]
-        (let [ch (async/chan 10)]
+      (connect [_]
+        ;; TODO: Magic constants!
+        (let [id (str (java.util.UUID/randomUUID))
+              in-ch (async/chan (async/dropping-buffer 100))
+              out-ch (async/chan (async/dropping-buffer 100))]
           (async/go-loop []
-            (when-let [msg (async/<! ch)]
-              (handler msg)
-              (recur)))
-          (swap! client-map assoc id ch)))
-      (disconnect [_ id]
-        (when-let [ch (get @client-map id)]
-          (async/close! ch)
-          (swap! client-map dissoc id))))))
+            (if-let [msg (async/<! in-ch)]
+              (do
+                (swap! client-msgs conj [id msg])
+                (recur))
+              (do
+                (async/close! in-ch)
+                (async/close! out-ch)
+                (swap! client-map dissoc id)
+                (swap! client-msgs conj [id ["disconnect" nil]]))))
+          (swap! client-map assoc id {:in-ch in-ch :out-ch out-ch})
+          (swap! client-msgs conj [id ["connect" nil]])
+          {:from-client in-ch :to-client out-ch})))))
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; In-process test client
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn in-process-echo-client [id]
-  (fn [msg] (prn id msg)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Message processing
