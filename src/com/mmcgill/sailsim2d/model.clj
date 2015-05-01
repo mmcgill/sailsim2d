@@ -137,3 +137,33 @@
   [game-state]
   (-> (reduce-kv tick-object game-state (:objects game-state))
       (update-in [:t] inc)))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Message processing
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(def message-handlers
+  {"connect"
+   (fn [state id _]
+     (first (add-boat state id [0 0])))
+
+   "disconnect"
+   (fn [state id _]
+     (remove-object state id))
+
+   "set-rudder-theta"
+   (fn [state id theta]
+     (if (get-in state [:objects id])
+       (let [theta (cond
+                     (> theta (/ Math/PI 4)) (/ Math/PI 4)
+                     (< theta (/ Math/PI -4)) (/ Math/PI -4)
+                     :else theta)]
+         (assoc-in state [:objects id :rudder-theta] theta))
+       state))})
+
+(defn process-message
+  [state [id [tag body]]]
+  (if-let [handler (get message-handlers tag)]
+    (handler state id body)
+    (do (prn :unrecognized-message tag)
+        state)))

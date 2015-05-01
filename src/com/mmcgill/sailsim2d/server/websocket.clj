@@ -17,8 +17,9 @@
           to-client (async/chan 3)]
       (httpkit/with-channel request channel
         ;; send client its assigned id as first message
-        (httpkit/send! channel (encode-msg ["id" id]))
         (swap! client-map assoc id {:to-client to-client, :websocket channel})
+        (httpkit/send! channel (encode-msg ["id" id]))
+        (async/>!! from-clients [id ["connect" nil]])
         (httpkit/on-receive channel (fn [msg]
                                       (try
                                         (async/>!! from-clients [id (decode-msg msg)])
@@ -26,6 +27,7 @@
                                           (st/print-cause-trace ex)))))
         (httpkit/on-close   channel (fn [status]
                                       (swap! client-map dissoc id)
+                                      (async/>!! from-clients [id ["disconnect" nil]])
                                       (async/close! to-client)))
         (async/go
           (loop []
