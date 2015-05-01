@@ -83,6 +83,7 @@ and game states go from server to clients.
                 (swap! client-msgs conj [id ["disconnect" nil]]))))
           (swap! client-map assoc id {:in-ch in-ch :out-ch out-ch})
           (swap! client-msgs conj [id ["connect" nil]])
+          (async/>!! out-ch ["id" id])
           {:from-client in-ch :to-client out-ch})))))
 
 
@@ -112,16 +113,6 @@ and game states go from server to clients.
 ;; Game loop
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn sync-clients [state client-mgr]
-  (let [prev-clients (-> state :boats keys set)
-        curr-clients (-> client-mgr list-clients set)
-        added-clients (set/difference curr-clients prev-clients)
-        dropped-clients (set/difference prev-clients curr-clients)]
-    (->> added-clients
-         (reduce #(assoc %1 %2 (m/boat [0 0])) {})
-         (reduce-kv m/add-boat state)
-         (#(reduce m/remove-boat % dropped-clients)))))
-
 (defn wait-until [nano-time]
   (let [millis (/ (- nano-time (System/nanoTime)) 1000000.0)]
     (when (> millis 0)
@@ -141,15 +132,14 @@ and game states go from server to clients.
           (let [[msg ch] (async/alts!! [stop-ch (async/timeout 0)])
                 start-nanos (System/nanoTime)]
             (when (not= ch stop-ch)
-              (let [next-state (-> state
-                                   (sync-clients client-mgr)
-                                   (process-messages (read-client-messages client-mgr))
-                                   m/tick)]
+              (let [msgs (read-client-messages client-mgr)
+                    next-state (m/tick (process-messages state handler msgs))]
                 (broadcast client-mgr ["state" next-state])
                 ;; TODO: this busy-wait is dumb, we could be processing messages here
                 (wait-until (+ start-nanos (long (* m/secs-per-tick 1000000000))))
                 (recur next-state)))))
         (catch Throwable ex
+          (async/close! stop-ch)
           (st/print-cause-trace ex)))
       (shutdown client-mgr)
       (println "Server stopped"))

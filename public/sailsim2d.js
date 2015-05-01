@@ -6,7 +6,7 @@ var sailsim = (function () {
 
     function getBoat () {
         if (my.state != null) {
-            return my.state.boats[my.id];
+            return my.state.objects[my.id];
         } else {
             return null;
         }
@@ -116,8 +116,10 @@ var sailsim = (function () {
             ctx.strokeStyle = "blue";
             ctx.lineWidth = 1/my.pixelsPerMeter;
             drawVectorGrid(ctx, b.pos, 10, my.state.current);
-            for (var id in my.state.boats) {
-                drawBoat(ctx, my.state.boats[id]);
+            for (var id in my.state.objects) {
+                if ("boat" == my.state.objects[id].type) {
+                    drawBoat(ctx, my.state.objects[id]);
+                }
             }
         }
         ctx.restore();

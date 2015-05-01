@@ -7,35 +7,45 @@
 (def water-rho 1000.0) ; kg/m^3
 (def air-rho 1.225)    ; kg/m^3
 
-(defn boat
-  "Return a new boat at the given position with default property values."
-  [pos]
-  {:sail-theta   0.0         ; angle, radians
-   :rudder-theta 0.0         ; angle, radians
-   :pos          pos         ; vector
-   :v            [0.0 0.0]   ; vector
-   :a            [0.0 0.0]   ; vector
-   :theta        0.0         ; angle, radians
-   :alpha        0.0         ; radians/sec^2
-   :omega        0.0         ; raians/sec
-   :mass         56.0        ; kg
-   :length       3.6         ; m
-   })
-
 (defn game-state
   "Create a new game state."
   [wind-vec current-vec]
   {:t       0              ; tick number
    :wind    wind-vec       ; [x y]  meters/sec
    :current current-vec    ; [x y]  meters/sec
-   :boats   {}             ; map of id -> boat
+   :objects {}             ; map of id -> object
+   :next-id 0
    })
 
-(defn add-boat [game-state id boat]
-  (update-in game-state [:boats] assoc id boat))
+(defn add-object
+  ([game-state obj]
+   (let [id (:next-id game-state)]
+     (add-object (update-in game-state [:next-id] inc) obj id)))
+  ([game-state obj id]
+   [(update-in game-state [:objects] assoc id obj)
+    id]))
 
-(defn remove-boat [game-state id]
-  (update-in game-state [:boats] dissoc id))
+(defn add-boat
+  "Returns [game-state,id] where game-state is updated
+  with a new boat identified by id."
+  [game-state id pos]
+  (add-object game-state
+              {:type         :boat
+               :sail-theta   0.0         ; angle, radians
+               :rudder-theta 0.0         ; angle, radians
+               :pos          pos         ; vector
+               :v            [0.0 0.0]   ; vector
+               :a            [0.0 0.0]   ; vector
+               :theta        0.0         ; angle, radians
+               :alpha        0.0         ; radians/sec^2
+               :omega        0.0         ; raians/sec
+               :mass         56.0        ; kg
+               :length       3.6         ; m
+               }
+              id))
+
+(defn remove-object [game-state id]
+  (update-in game-state [:objects] dissoc id))
 
 (defn vadd [[x1 y1] [x2 y2]] [(+ x1 x2) (+ y1 y2)])
 (defn vsub [[x1 y1] [x2 y2]] [(- x1 x2) (- y1 y2)])
@@ -88,8 +98,13 @@
         speed (vmag current)]
     (* r rudder-coefficient speed speed (+ (Math/sin theta) #_(Math/sin (* 3 theta))))))
 
-(defn tick-boat [{:keys [current] :as game-state}
-                 {:keys [mass length pos v theta omega rudder-theta] :as boat}]
+(defn tick-object-dispatch [game-state id obj] (:type obj))
+(defmulti tick-object #'tick-object-dispatch)
+
+(defmethod tick-object :boat
+  [{:keys [current] :as game-state}
+   id
+   {:keys [mass length pos v theta omega rudder-theta] :as boat}]
   ;; TODO: compute net force and torque, then apply to
   ;; velocity and position
   (let [current (vsub current v)
@@ -112,16 +127,13 @@
         a (vdiv f [mass mass])
         v (vadd v (vmul a [secs-per-tick secs-per-tick]))
         pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))]
-    (assoc boat
-           :pos pos :v v :a a
-           :theta theta :omega omega :alpha alpha)))
-
-(defn tick-boats [game-state boats]
-  (reduce-kv #(assoc %1 %2 (tick-boat game-state %3)) {} boats))
+    (assoc-in game-state [:objects id]
+              (assoc boat
+                     :pos pos :v v :a a
+                     :theta theta :omega omega :alpha alpha))))
 
 (defn tick
   "Compute one game tick, producing a new game state"
   [game-state]
-  (-> game-state
-      (update-in [:boats] #(tick-boats game-state %))
+  (-> (reduce-kv tick-object game-state (:objects game-state))
       (update-in [:t] inc)))
