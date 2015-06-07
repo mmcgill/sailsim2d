@@ -3,6 +3,7 @@
 
 var sailsim = (function () {
     var my = {};
+    my.pixelsPerMeter = 8;
 
     function getBoat () {
         if (my.state != null) {
@@ -40,7 +41,12 @@ var sailsim = (function () {
     }
 
     ////////////////////////////////////////////
-    // keyboard input
+    // keyboard/mouse input
+
+    function clamp(min,max,v) {
+        return Math.max(min, Math.min(max, v));
+    }
+
     var PI = 3.14159;
     window.addEventListener('keydown', function (e) {
         switch (e.keyCode) {
@@ -55,6 +61,10 @@ var sailsim = (function () {
         case 37: sendMsg("set-rudder-theta", 0); break;
         case 39: sendMsg("set-rudder-theta", 0); break;
         }
+    });
+    window.addEventListener('wheel', function (e) {
+        my.pixelsPerMeter -= clamp(-100,100,e.deltaY)/100.0;
+        my.pixelsPerMeter = clamp(1,35,my.pixelsPerMeter);
     });
        
 
@@ -101,7 +111,6 @@ var sailsim = (function () {
         drawArrow(ctx, posx, posy, posx+vx, posy+vy);
     }
     
-    my.pixelsPerMeter = 8;
     function drawFrame (timestamp) {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
         ctx.save();
