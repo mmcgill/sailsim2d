@@ -19,7 +19,7 @@
   (stop)
   (let [mgr (ws/websocket-manager {:port websocket-port})]
     (try
-      (reset! system {:stop-ch (s/start-server (m/game-state [6 3] [1.5 1]) m/process-message mgr)
+      (reset! system {:stop-ch (s/start-server (m/game-state [6 3] [0.3 0.2]) m/process-message mgr)
                       :stop-fn (http/start {:port http-port})
                       :mgr mgr})
       (catch Throwable ex

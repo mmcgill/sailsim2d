@@ -87,27 +87,8 @@ and game states go from server to clients.
           {:from-client in-ch :to-client out-ch})))))
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Message processing
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(def message-handlers
-  {"set-rudder-theta"
-   (fn [state id theta]
-     (when (get-in state [:boats id])
-       (let [theta (cond
-                     (> theta (/ Math/PI 4)) (/ Math/PI 4)
-                     (< theta (/ Math/PI -4)) (/ Math/PI -4)
-                     :else theta)]
-         (assoc-in state [:boats id :rudder-theta] theta))))})
-
-(defn process-message
-  [state [id [tag body]]]
-  (when-let [handler (get message-handlers tag)]
-    (handler state id body)))
-
-(defn process-messages [state msgs]
-  (reduce process-message state msgs))
+(defn process-messages [state handler msgs]
+  (reduce handler state msgs))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Game loop
@@ -123,7 +104,7 @@ and game states go from server to clients.
 
 (defn start-server
   "Start a server."
-  [initial-state client-mgr]
+  [initial-state handler client-mgr]
   (let [stop-ch (async/chan)]
     (async/thread
       (try

@@ -2,10 +2,15 @@
   "The sailing model and physics calculations."
   )
 
+;;;;;; Constants ;;;;;;;;;;;;;;;;;;;;;;;;;
+
 (def ticks-per-sec 30)
 (def secs-per-tick (/ 1.0 ticks-per-sec))
 (def water-rho 1000.0) ; kg/m^3
 (def air-rho 1.225)    ; kg/m^3
+(def wake-curve-ttl 5.0) ; seconds
+
+;;;;;; Game state and ticks ;;;;;;;;;;;;;;
 
 (defn game-state
   "Create a new game state."
@@ -14,8 +19,7 @@
    :wind    wind-vec       ; [x y]  meters/sec
    :current current-vec    ; [x y]  meters/sec
    :objects {}             ; map of id -> object
-   :next-id 0
-   })
+   :next-id 0})
 
 (defn add-object
   ([game-state obj]
@@ -24,6 +28,20 @@
   ([game-state obj id]
    [(update-in game-state [:objects] assoc id obj)
     id]))
+
+(defn remove-object [game-state id]
+  (update-in game-state [:objects] dissoc id))
+
+(defn tick-object-dispatch [game-state id obj] (:type obj))
+(defmulti tick-object #'tick-object-dispatch)
+
+(defn tick
+  "Compute one game tick, producing a new game state"
+  [game-state]
+  (-> (reduce-kv tick-object game-state (:objects game-state))
+      (update-in [:t] inc)))
+
+;;;;;; Boats ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn add-boat
   "Returns [game-state,id] where game-state is updated
@@ -43,9 +61,6 @@
                :length       3.6         ; m
                }
               id))
-
-(defn remove-object [game-state id]
-  (update-in game-state [:objects] dissoc id))
 
 (defn vadd [[x1 y1] [x2 y2]] [(+ x1 x2) (+ y1 y2)])
 (defn vsub [[x1 y1] [x2 y2]] [(- x1 x2) (- y1 y2)])
@@ -98,9 +113,6 @@
         speed (vmag current)]
     (* r rudder-coefficient speed speed (+ (Math/sin theta) #_(Math/sin (* 3 theta))))))
 
-(defn tick-object-dispatch [game-state id obj] (:type obj))
-(defmulti tick-object #'tick-object-dispatch)
-
 (defmethod tick-object :boat
   [{:keys [current] :as game-state}
    id
@@ -132,11 +144,41 @@
                      :pos pos :v v :a a
                      :theta theta :omega omega :alpha alpha))))
 
-(defn tick
-  "Compute one game tick, producing a new game state"
-  [game-state]
-  (-> (reduce-kv tick-object game-state (:objects game-state))
-      (update-in [:t] inc)))
+;;;;;; Wake Curves ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(defn add-wake-curve
+  "Add a new wake curve to the game state, returning its id.
+
+  A wake curve is a vector of points, each point having a position
+  and velocity. The client renders the curve by drawing line segments
+  between adjacent points. Each tick, each point's position is updated
+  according to its velocity."
+  [game-state pos v]
+  (add-object
+   game-state
+   {:type   :wake-curve
+    :points [{:pos pos, :v v, :ttl wake-curve-ttl}]}))
+
+(defn extend-wake-curve
+  "Extend a wake curve with a new segment."
+  [game-state id pos v]
+  (update-in game-state [:objects id] conj
+             {:pos pos :v v :ttl wake-curve-ttl}))
+
+(defn update-wake-curve-point [{:keys [pos v]}])
+
+(defmethod tick-object :wake-curve
+  [{:keys [current] :as game-state}
+   id
+   {:keys [id points]}]
+  ;; update each point in the curve
+  (if (empty? points)
+    (remove-object game-state id))
+  (->> points
+       (filter #(> 0 (:ttl %)))
+       (reduce update-wake-curve-point)
+       (assoc-in game-state [:objects id :points])))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Message processing

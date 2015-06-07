@@ -44,8 +44,8 @@ var sailsim = (function () {
     var PI = 3.14159;
     window.addEventListener('keydown', function (e) {
         switch (e.keyCode) {
-        case 37: sendMsg("set-rudder-theta", PI/4); break;
-        case 39: sendMsg("set-rudder-theta", -PI/4); break;
+        case 37: sendMsg("set-rudder-theta", PI/8); break;
+        case 39: sendMsg("set-rudder-theta", -PI/8); break;
         }
     });
     window.addEventListener('keyup', function (e) {
@@ -99,7 +99,7 @@ var sailsim = (function () {
         drawArrow(ctx, posx, posy, posx+vx, posy+vy);
     }
     
-    my.pixelsPerMeter = 20;
+    my.pixelsPerMeter = 8;
     function drawFrame (timestamp) {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
         ctx.save();
