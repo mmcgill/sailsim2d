@@ -45,7 +45,9 @@ var sailsim = (function () {
     window.addEventListener('keydown', function (e) {
         switch (e.keyCode) {
         case 37: sendMsg("set-rudder-theta", PI/8); break;
+        case 38: sendMsg("set-throttle", getBoat().throttle + 0.1); break;
         case 39: sendMsg("set-rudder-theta", -PI/8); break;
+        case 40: sendMsg("set-throttle", getBoat().throttle - 0.1); break;
         }
     });
     window.addEventListener('keyup', function (e) {
@@ -109,6 +111,7 @@ var sailsim = (function () {
             var posx=b.pos[0], posy=b.pos[1];
             ctx.strokeText("x: " + String(posx).substring(0,5) +
                            " y: " + String(posy).substring(0,5), 10, 30);
+            ctx.strokeText("throttle: "+String(getBoat().throttle), 10, 50);
             ctx.translate(ctx.canvas.width/2.0 - posx*my.pixelsPerMeter,
                           ctx.canvas.height/2.0 - posy*my.pixelsPerMeter);
             ctx.scale(my.pixelsPerMeter, my.pixelsPerMeter);

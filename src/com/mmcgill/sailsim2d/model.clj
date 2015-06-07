@@ -9,6 +9,7 @@
 (def water-rho 1000.0) ; kg/m^3
 (def air-rho 1.225)    ; kg/m^3
 (def wake-curve-ttl 5.0) ; seconds
+(def motor-accel 2.0) ; m/s^2
 
 ;;;;;; Game state and ticks ;;;;;;;;;;;;;;
 
@@ -59,6 +60,7 @@
                :omega        0.0         ; raians/sec
                :mass         56.0        ; kg
                :length       3.6         ; m
+               :throttle     0.0         ; 0-1
                }
               id))
 
@@ -116,7 +118,7 @@
 (defmethod tick-object :boat
   [{:keys [current] :as game-state}
    id
-   {:keys [mass length pos v theta omega rudder-theta] :as boat}]
+   {:keys [mass length pos v theta omega rudder-theta throttle] :as boat}]
   ;; TODO: compute net force and torque, then apply to
   ;; velocity and position
   (let [current (vsub current v)
@@ -124,8 +126,7 @@
         td (* (- rotation-damping) omega (/ length 2))
         t (+ tr td)
         fh (compute-drag water-rho current theta hull-cda)
-        ;_ (prn :fh fh)
-        fm (vrot [(* 2 mass) 0] theta)        ; TEMP: motor
+        fm (vrot [(* motor-accel mass throttle) 0] theta)        ; TEMP: motor
         ;;fm [0 0]
         fd (vsub [0 0] (vmul v [linear-damping linear-damping]))
         f (vadd (vadd fh fd) fm)
@@ -201,6 +202,13 @@
                      (< theta (/ Math/PI -4)) (/ Math/PI -4)
                      :else theta)]
          (assoc-in state [:objects id :rudder-theta] theta))
+       state))
+
+   "set-throttle"
+   (fn [state id throttle]
+     (if (get-in state [:objects id])
+       (let [throttle (max 0 (min 1 throttle))]
+         (assoc-in state [:objects id :throttle] throttle))
        state))})
 
 (defn process-message
