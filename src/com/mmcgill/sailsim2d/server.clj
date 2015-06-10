@@ -115,6 +115,8 @@ and game states go from server to clients.
             (when (not= ch stop-ch)
               (let [msgs (read-client-messages client-mgr)
                     next-state (m/tick (process-messages state handler msgs))]
+                #_(when (= 0 (mod (:t next-state) 100))
+                  (clojure.pprint/pprint next-state))
                 (broadcast client-mgr ["state" next-state])
                 ;; TODO: this busy-wait is dumb, we could be processing messages here
                 (wait-until (+ start-nanos (long (* m/secs-per-tick 1000000000))))

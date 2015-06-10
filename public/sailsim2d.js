@@ -7,7 +7,7 @@ var sailsim = (function () {
 
     function getBoat () {
         if (my.state != null) {
-            return my.state.objects[my.id];
+            return my.state.entities[my.id];
         } else {
             return null;
         }
@@ -118,7 +118,7 @@ var sailsim = (function () {
         if (my.state != null) {
             var b = getBoat();
             var posx=b.pos[0], posy=b.pos[1];
-            ctx.strokeText("x: " + String(posx).substring(0,5) +
+           ctx.strokeText("x: " + String(posx).substring(0,5) +
                            " y: " + String(posy).substring(0,5), 10, 30);
             ctx.strokeText("throttle: "+String(getBoat().throttle), 10, 50);
             ctx.translate(ctx.canvas.width/2.0 - posx*my.pixelsPerMeter,
@@ -128,10 +128,10 @@ var sailsim = (function () {
             ctx.strokeStyle = "blue";
             ctx.lineWidth = 1/my.pixelsPerMeter;
             drawVectorGrid(ctx, b.pos, 10, my.state.current);
-            for (var id in my.state.objects) {
-                if ("boat" == my.state.objects[id].type) {
-                    drawBoat(ctx, my.state.objects[id]);
-                }
+            for (var id in my.state.entities) {
+                //if ("boat" == my.state.entities[id].type) {
+                    drawBoat(ctx, my.state.entities[id]);
+                //}
             }
         }
         ctx.restore();

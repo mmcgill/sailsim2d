@@ -5,4 +5,6 @@
                  [org.clojure/data.json "0.2.5"]
                  [http-kit "2.1.16"]
                  [compojure "1.3.1"]
-                 [hiccup "1.0.5"]])
+                 [hiccup "1.0.5"]
+                 [prismatic/schema "0.4.3"]]
+  :plugins [[lein-cloverage "1.0.6"]])

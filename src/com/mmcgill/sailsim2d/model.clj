@@ -1,6 +1,6 @@
 (ns com.mmcgill.sailsim2d.model
   "The sailing model and physics calculations."
-  )
+  (:require [schema.core :as s]))
 
 ;;;;;; Constants ;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -13,56 +13,64 @@
 
 ;;;;;; Game state and ticks ;;;;;;;;;;;;;;
 
-(defn game-state
+(defprotocol Entity
+  (update- [entity id game-state]))
+
+(s/defschema Vec [(s/one s/Num "x") (s/one s/Num "y")])
+
+(s/defschema Id s/Int)
+
+(s/defschema GameState
+  {:t       s/Int
+   :wind    Vec
+   :current Vec
+   :entities {Id (s/protocol Entity)}
+   :next-id Id})
+
+(s/defn tick-entity :- GameState
+  [game-state :- GameState, id :- Id, entity :- (s/protocol Entity)]
+  (update- entity id game-state))
+
+(s/defn game-state :- GameState
   "Create a new game state."
-  [wind-vec current-vec]
+  [wind :- Vec, current :- Vec]
   {:t       0              ; tick number
-   :wind    wind-vec       ; [x y]  meters/sec
-   :current current-vec    ; [x y]  meters/sec
-   :objects {}             ; map of id -> object
+   :wind    wind           ; [x y]  meters/sec
+   :current current        ; [x y]  meters/sec
+   :entities {}            ; map of id -> object
    :next-id 0})
 
-(defn add-object
-  ([game-state obj]
+(s/defn add-entity :- [(s/one GameState "state") (s/one Id "id")]
+
+  ([game-state :- GameState
+    entity :- (s/protocol Entity)]
    (let [id (:next-id game-state)]
-     (add-object (update-in game-state [:next-id] inc) obj id)))
-  ([game-state obj id]
-   [(update-in game-state [:objects] assoc id obj)
+     (add-entity (update-in game-state [:next-id] inc) entity id)))
+
+  ([game-state :- GameState
+    entity :- (s/protocol Entity)
+    id :- Id]
+   (when (contains? (:entities game-state) id)
+     (throw (ex-info (str "Duplicate ID " id)
+                     {:entities [entity (get-in game-state [:entities id])]})))
+   [(update-in game-state [:entities] assoc id entity)
     id]))
 
-(defn remove-object [game-state id]
-  (update-in game-state [:objects] dissoc id))
+(s/defn update-entity :- GameState
+  [game-state :- GameState, id :- Id, entity :- (s/protocol Entity)]
+  (update-in game-state [:entities] assoc id entity))
 
-(defn tick-object-dispatch [game-state id obj] (:type obj))
-(defmulti tick-object #'tick-object-dispatch)
+(s/defn remove-entity :- GameState
+  [game-state :- GameState, id :- Id]
+  (update-in game-state [:entities] dissoc id))
 
-(defn tick
+(s/defn tick :- GameState
   "Compute one game tick, producing a new game state"
-  [game-state]
-  (-> (reduce-kv tick-object game-state (:objects game-state))
+  [game-state :- GameState]
+  (-> (reduce-kv tick-entity game-state (:entities game-state))
       (update-in [:t] inc)))
 
 ;;;;;; Boats ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-(defn add-boat
-  "Returns [game-state,id] where game-state is updated
-  with a new boat identified by id."
-  [game-state id pos]
-  (add-object game-state
-              {:type         :boat
-               :sail-theta   0.0         ; angle, radians
-               :rudder-theta 0.0         ; angle, radians
-               :pos          pos         ; vector
-               :v            [0.0 0.0]   ; vector
-               :a            [0.0 0.0]   ; vector
-               :theta        0.0         ; angle, radians
-               :alpha        0.0         ; radians/sec^2
-               :omega        0.0         ; raians/sec
-               :mass         56.0        ; kg
-               :length       3.6         ; m
-               :throttle     0.0         ; 0-1
-               }
-              id))
 
 (defn vadd [[x1 y1] [x2 y2]] [(+ x1 x2) (+ y1 y2)])
 (defn vsub [[x1 y1] [x2 y2]] [(- x1 x2) (- y1 y2)])
@@ -115,39 +123,68 @@
         speed (vmag current)]
     (* r rudder-coefficient speed speed (+ (Math/sin theta) #_(Math/sin (* 3 theta))))))
 
-(defmethod tick-object :boat
-  [{:keys [current] :as game-state}
-   id
-   {:keys [mass length pos v theta omega rudder-theta throttle] :as boat}]
-  ;; TODO: compute net force and torque, then apply to
-  ;; velocity and position
-  (let [current (vsub current v)
-        tr (rudder-torque (/ length 2) current (+ theta rudder-theta))
-        td (* (- rotation-damping) omega (/ length 2))
-        t (+ tr td)
-        fh (compute-drag water-rho current theta hull-cda)
-        fm (vrot [(* motor-accel mass throttle) 0] theta)        ; TEMP: motor
-        ;;fm [0 0]
-        fd (vsub [0 0] (vmul v [linear-damping linear-damping]))
-        f (vadd (vadd fh fd) fm)
+(defrecord Boat [sail-theta rudder-theta pos v a theta
+                 alpha omega mass length throttle]
+  Entity
+  (update- [_ id game-state]
+    ;; TODO: compute net force and torque, then apply to
+    ;; velocity and position
+    (let [current (vsub (:current game-state) v)
+          tr (rudder-torque (/ length 2) current (+ theta rudder-theta))
+          td (* (- rotation-damping) omega (/ length 2))
+          t (+ tr td)
+          fh (compute-drag water-rho current theta hull-cda)
+          fm (vrot [(* motor-accel mass throttle) 0] theta)        ; TEMP: motor
+          ;;fm [0 0]
+          fd (vsub [0 0] (vmul v [linear-damping linear-damping]))
+          f (vadd (vadd fh fd) fm)
 
-        ;; rotational dynamics
-        alpha (/ t (moment-of-inertia length mass))
-        omega (+ omega (* secs-per-tick alpha))
-        theta (+ theta (* secs-per-tick omega))
+          ;; rotational dynamics
+          alpha (/ t (moment-of-inertia length mass))
+          omega (+ omega (* secs-per-tick alpha))
+          theta (+ theta (* secs-per-tick omega))
 
-        ;; linear dynamics
-        a (vdiv f [mass mass])
-        v (vadd v (vmul a [secs-per-tick secs-per-tick]))
-        pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))]
-    (assoc-in game-state [:objects id]
-              (assoc boat
-                     :pos pos :v v :a a
-                     :theta theta :omega omega :alpha alpha))))
+          ;; linear dynamics
+          a (vdiv f [mass mass])
+          v (vadd v (vmul a [secs-per-tick secs-per-tick]))
+          pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))]
+      (update-entity game-state id
+                     (Boat. sail-theta rudder-theta pos v a theta
+                            alpha omega mass length throttle)))))
+
+(s/defschema SBoat
+  (s/both Boat
+          {:sail-theta   s/Num
+           :rudder-theta s/Num
+           :pos          Vec
+           :v            Vec
+           :a            Vec
+           :theta        s/Num
+           :alpha        s/Num
+           :omega        s/Num
+           :mass         s/Num
+           :length       s/Num
+           :throttle     s/Num}))
+
+(s/defn boat :- SBoat
+  [pos :- Vec]
+  (Boat.
+   0.0         ; angle, radians
+   0.0         ; angle, radians
+   pos         ; vector
+   [0.0 0.0]   ; vector
+   [0.0 0.0]   ; vector
+   0.0         ; angle, radians
+   0.0         ; radians/sec^2
+   0.0         ; raians/sec
+   56.0        ; kg
+   3.6         ; m
+   0.0         ; 0-1
+   ))
 
 ;;;;;; Wake Curves ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn add-wake-curve
+#_(defn add-wake-curve
   "Add a new wake curve to the game state, returning its id.
 
   A wake curve is a vector of points, each point having a position
@@ -160,15 +197,15 @@
    {:type   :wake-curve
     :points [{:pos pos, :v v, :ttl wake-curve-ttl}]}))
 
-(defn extend-wake-curve
+#_(defn extend-wake-curve
   "Extend a wake curve with a new segment."
   [game-state id pos v]
   (update-in game-state [:objects id] conj
              {:pos pos :v v :ttl wake-curve-ttl}))
 
-(defn update-wake-curve-point [{:keys [pos v]}])
+#_(defn update-wake-curve-point [{:keys [pos v]}])
 
-(defmethod tick-object :wake-curve
+#_(defmethod tick-object :wake-curve
   [{:keys [current] :as game-state}
    id
    {:keys [id points]}]
@@ -188,27 +225,27 @@
 (def message-handlers
   {"connect"
    (fn [state id _]
-     (first (add-boat state id [0 0])))
+     (first (add-entity state (boat [0 0]) id)))
 
    "disconnect"
    (fn [state id _]
-     (remove-object state id))
+     (remove-entity state id))
 
    "set-rudder-theta"
    (fn [state id theta]
-     (if (get-in state [:objects id])
+     (if (get-in state [:entities id])
        (let [theta (cond
                      (> theta (/ Math/PI 4)) (/ Math/PI 4)
                      (< theta (/ Math/PI -4)) (/ Math/PI -4)
                      :else theta)]
-         (assoc-in state [:objects id :rudder-theta] theta))
+         (assoc-in state [:entities id :rudder-theta] theta))
        state))
 
    "set-throttle"
    (fn [state id throttle]
-     (if (get-in state [:objects id])
+     (if (get-in state [:entities id])
        (let [throttle (max 0 (min 1 throttle))]
-         (assoc-in state [:objects id :throttle] throttle))
+         (assoc-in state [:entities id :throttle] throttle))
        state))})
 
 (defn process-message
