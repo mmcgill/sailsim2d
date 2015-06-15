@@ -9,9 +9,9 @@
 (def secs-per-tick (/ 1.0 ticks-per-sec))
 (def water-rho 1000.0) ; kg/m^3
 (def air-rho 1.225)    ; kg/m^3
-(def wake-ttl 5.0)     ; seconds
+(def wake-ttl 200)     ; ticks
 (def wake-speed 1.0)   ; m/s
-(def wake-ticks-per-segment 30)
+(def wake-ticks-per-segment 10)
 (def motor-accel 2.0)  ; m/s^2
 
 ;;;;;; Game state and ticks ;;;;;;;;;;;;;;
@@ -50,7 +50,7 @@
   {:id Id
    :pos Vec
    :v Vec
-   :ttl s/Num})
+   :ttl s/Int})
 
 (s/defschema OutgoingMsg
   (s/either
