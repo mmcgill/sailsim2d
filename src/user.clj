@@ -9,17 +9,29 @@
 
 (defn stop []
   (when @system
-    (let [{:keys [stop-ch stop-fn]} @system]
+    (let [{:keys [stop-ch stop-fn mgr]} @system]
       (async/close! stop-ch)
-      (stop-fn))
+      (stop-fn)
+      (s/shutdown mgr))
     (reset! system nil)))
+
+(defn go-ipc []
+  (stop)
+  (let [mgr (s/in-process-client-manager)]
+    (try
+      (reset! system {:stop-ch (s/start-server (m/game-state [0 0] [0.3 0.2]) mgr)
+                      :stop-fn (constantly nil)
+                      :mgr mgr})
+      (catch Throwable ex
+        (s/shutdown mgr)
+        (throw ex)))))
 
 (defn go [& {:keys [websocket-port http-port]
              :or {websocket-port 9090, http-port 8080}}]
   (stop)
   (let [mgr (ws/websocket-manager {:port websocket-port})]
     (try
-      (reset! system {:stop-ch (s/start-server (m/game-state [6 3] [0.3 0.2]) m/process-message mgr)
+      (reset! system {:stop-ch (s/start-server (m/game-state [6 3] [0.3 0.2]) mgr)
                      :stop-fn (http/start {:port http-port})
                       :mgr mgr})
       (catch Throwable ex

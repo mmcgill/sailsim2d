@@ -60,7 +60,8 @@ and game states go from server to clients.
         (when-let [{:keys [out-ch]} (get @client-map id)]
           (async/>!! out-ch msg)))
       (shutdown [_]
-        (doseq [ch (vals @client-map)]
+        (doseq [chs (vals @client-map)
+                ch (vals chs)]
           (async/close! ch))
         (reset! client-map nil)
         (reset! client-msgs nil))
@@ -80,9 +81,9 @@ and game states go from server to clients.
                 (async/close! in-ch)
                 (async/close! out-ch)
                 (swap! client-map dissoc id)
-                (swap! client-msgs conj [id ["disconnect" nil]]))))
+                (swap! client-msgs conj [id ["disconnect"]]))))
           (swap! client-map assoc id {:in-ch in-ch :out-ch out-ch})
-          (swap! client-msgs conj [id ["connect" nil]])
+          (swap! client-msgs conj [id ["connect"]])
           (async/>!! out-ch ["id" id])
           {:from-client in-ch :to-client out-ch})))))
 
@@ -104,7 +105,7 @@ and game states go from server to clients.
 
 (defn start-server
   "Start a server."
-  [initial-state handler client-mgr]
+  [initial-state client-mgr]
   (let [stop-ch (async/chan)]
     (async/thread
       (try
@@ -113,14 +114,14 @@ and game states go from server to clients.
           (let [[msg ch] (async/alts!! [stop-ch (async/timeout 0)])
                 start-nanos (System/nanoTime)]
             (when (not= ch stop-ch)
-              (let [msgs (read-client-messages client-mgr)
-                    next-state (m/tick (process-messages state handler msgs))]
-                #_(when (= 0 (mod (:t next-state) 100))
-                  (clojure.pprint/pprint next-state))
-                (broadcast client-mgr ["state" next-state])
+              (let [next-state (->> (read-client-messages client-mgr)
+                                    (m/add-all-incoming state)
+                                    m/tick)]
+                (doseq [[client-id msg] (m/peek-all-outgoing next-state)]
+                  (send-to-client client-mgr client-id msg))
                 ;; TODO: this busy-wait is dumb, we could be processing messages here
                 (wait-until (+ start-nanos (long (* m/secs-per-tick 1000000000))))
-                (recur next-state)))))
+                (recur (m/pop-all-outgoing next-state))))))
         (catch Throwable ex
           (async/close! stop-ch)
           (st/print-cause-trace ex)))

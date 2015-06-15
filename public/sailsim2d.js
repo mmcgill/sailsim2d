@@ -3,11 +3,12 @@
 
 var sailsim = (function () {
     var my = {};
+    my.entities  = {};
     my.pixelsPerMeter = 8;
 
     function getBoat () {
-        if (my.state != null) {
-            return my.state.entities[my.id];
+        if (my.entities != null) {
+            return my.entities[my.boatId];
         } else {
             return null;
         }
@@ -15,13 +16,23 @@ var sailsim = (function () {
 
     ////////////////////////////////////////////
     // message handlers
-    function handleState (newState) {
-        my.state = newState;
-    };
-
     function handleId (id) {
         my.id = id;
     };
+
+    function handleSetBoatId (boatId) {
+        my.boatId = boatId;
+    }
+
+    function handleBoatUpdate (update) {
+        my.entities[update.id] = update;
+        my.entities[update.id].type = "boat";
+    }
+
+    function handleEnvUpdate(update) {
+        my.wind = update.wind;
+        my.current = update.current;
+    }
 
     ////////////////////////////////////////////
     // WebSocket management
@@ -29,8 +40,10 @@ var sailsim = (function () {
     my.socket.onmessage = function (e) {
         var msg = JSON.parse(e.data);
         var tag = msg[0], body = msg[1];
-        if (tag == "state") handleState(body);
+        if (tag == "set-boat-id") handleSetBoatId(body);
         else if (tag == "id") handleId(body);
+        else if (tag == "boat-update") handleBoatUpdate(body);
+        else if (tag == "env-update") handleEnvUpdate(body);
         else console.log("Unrecognized tag '" + tag + "'");
     };
     my.socket.onclose = function (e) {
@@ -115,10 +128,10 @@ var sailsim = (function () {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
         ctx.save();
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
-        if (my.state != null) {
-            var b = getBoat();
+        var b = getBoat();
+        if (b != null) {
             var posx=b.pos[0], posy=b.pos[1];
-           ctx.strokeText("x: " + String(posx).substring(0,5) +
+            ctx.strokeText("x: " + String(posx).substring(0,5) +
                            " y: " + String(posy).substring(0,5), 10, 30);
             ctx.strokeText("throttle: "+String(getBoat().throttle), 10, 50);
             ctx.translate(ctx.canvas.width/2.0 - posx*my.pixelsPerMeter,
@@ -127,11 +140,11 @@ var sailsim = (function () {
             // draw water current on a grid with vertices on multiples of 50 meters
             ctx.strokeStyle = "blue";
             ctx.lineWidth = 1/my.pixelsPerMeter;
-            drawVectorGrid(ctx, b.pos, 10, my.state.current);
-            for (var id in my.state.entities) {
-                //if ("boat" == my.state.entities[id].type) {
-                    drawBoat(ctx, my.state.entities[id]);
-                //}
+            drawVectorGrid(ctx, b.pos, 10, my.current);
+            for (var id in my.entities) {
+                if ("boat" == my.entities[id].type) {
+                    drawBoat(ctx, my.entities[id]);
+                }
             }
         }
         ctx.restore();

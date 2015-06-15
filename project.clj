@@ -6,5 +6,5 @@
                  [http-kit "2.1.16"]
                  [compojure "1.3.1"]
                  [hiccup "1.0.5"]
-                 [prismatic/schema "0.4.3"]]
+                 [prismatic/schema "0.4.4-mmcgill"]]
   :plugins [[lein-cloverage "1.0.6"]])

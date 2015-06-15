@@ -1,6 +1,7 @@
 (ns com.mmcgill.sailsim2d.model
   "The sailing model and physics calculations."
-  (:require [schema.core :as s]))
+  (:require [clojure.pprint :refer [pprint]]
+            [schema.core :as s]))
 
 ;;;;;; Constants ;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -13,32 +14,74 @@
 
 ;;;;;; Game state and ticks ;;;;;;;;;;;;;;
 
-(defprotocol Entity
-  (update- [entity id game-state]))
-
 (s/defschema Vec [(s/one s/Num "x") (s/one s/Num "y")])
 
 (s/defschema Id s/Int)
+
+(defprotocol Entity
+  (tick-entity- [entity id game-state]))
+
+(defn Msg
+  [tag & payload]
+  (apply vector (s/one (s/eq tag) "tag") payload))
+
+(s/defschema IncomingMsg
+  (s/either
+   (Msg "connect")
+   (Msg "disconnect")
+   (Msg "set-rudder-theta" s/Num)
+   (Msg "set-throttle"     s/Num)))
+
+(s/defschema BoatUpdate
+  {:id Id
+   :pos Vec
+   :v Vec
+   :theta s/Num
+   :rudder-theta s/Num
+   :throttle s/Num})
+
+(s/defschema EnvironmentUpdate
+  {:wind Vec
+   :current Vec})
+
+(s/defschema OutgoingMsg
+  (s/either
+   (Msg "set-boat-id" s/Num)
+   (Msg "env-update" EnvironmentUpdate)
+   (Msg "boat-update" BoatUpdate)))
+
+(defprotocol ClientMediary
+  "The server-side representative of a connected client,
+   responsible for updating game state in response to
+   messages from the client."
+  (handle-message- [this game-state msg]))
 
 (s/defschema GameState
   {:t       s/Int
    :wind    Vec
    :current Vec
    :entities {Id (s/protocol Entity)}
+   :mediaries {s/Str (s/protocol ClientMediary)}
+   :outbox (s/queue (s/pair s/Str "client-id" OutgoingMsg "msg"))
+   :inbox (s/queue (s/pair s/Str "client-id" IncomingMsg "msg"))
    :next-id Id})
 
 (s/defn tick-entity :- GameState
   [game-state :- GameState, id :- Id, entity :- (s/protocol Entity)]
-  (update- entity id game-state))
+  (tick-entity- entity id game-state))
 
 (s/defn game-state :- GameState
   "Create a new game state."
-  [wind :- Vec, current :- Vec]
-  {:t       0              ; tick number
-   :wind    wind           ; [x y]  meters/sec
-   :current current        ; [x y]  meters/sec
-   :entities {}            ; map of id -> object
-   :next-id 0})
+  ([] (game-state [0 0] [0 0]))
+  ([wind :- Vec, current :- Vec]
+   {:t       0              ; tick number
+    :wind    wind           ; [x y]  meters/sec
+    :current current        ; [x y]  meters/sec
+    :entities {}            ; map of id -> object
+    :mediaries {}
+    :outbox (s/as-queue [])
+    :inbox (s/as-queue [])
+    :next-id 0}))
 
 (s/defn add-entity :- [(s/one GameState "state") (s/one Id "id")]
 
@@ -56,6 +99,10 @@
    [(update-in game-state [:entities] assoc id entity)
     id]))
 
+(s/defn get-entity :- (s/maybe (s/protocol Entity))
+  [game-state :- GameState, id :- Id]
+  (get-in game-state [:entities id]))
+
 (s/defn update-entity :- GameState
   [game-state :- GameState, id :- Id, entity :- (s/protocol Entity)]
   (update-in game-state [:entities] assoc id entity))
@@ -64,11 +111,68 @@
   [game-state :- GameState, id :- Id]
   (update-in game-state [:entities] dissoc id))
 
-(s/defn tick :- GameState
-  "Compute one game tick, producing a new game state"
+(s/defn add-mediary :- GameState
+  [game-state :- GameState
+   id :- s/Str
+   mediary :- (s/protocol ClientMediary)]
+  (update-in game-state [:mediaries] assoc id mediary))
+
+(s/defn get-mediary :- (s/maybe (s/protocol ClientMediary))
+  [game-state :- GameState, id :- s/Str]
+  (get-in game-state [:mediaries id]))
+
+(s/defn remove-mediary :- GameState
+  [game-state :- GameState, id :- s/Str]
+  (update-in game-state [:mediaries] dissoc id))
+
+;;;;;; Messaging functions ;;;;;;;;;;;;;
+
+(s/defn add-outgoing :- GameState
+  [game-state :- GameState
+   client-id :- s/Str
+   msg :- OutgoingMsg]
+  (update-in game-state [:outbox] conj [client-id msg]))
+
+(s/defn broadcast-outgoing :- GameState
+  [game-state :- GameState
+   msg :- OutgoingMsg]
+  (reduce #(add-outgoing %1 %2 msg)
+          game-state
+          (keys (:mediaries game-state))))
+
+(s/defn peek-all-outgoing :- (s/queue (s/pair s/Str "client-id" OutgoingMsg "msg"))
   [game-state :- GameState]
-  (-> (reduce-kv tick-entity game-state (:entities game-state))
-      (update-in [:t] inc)))
+  (:outbox game-state))
+
+(s/defn pop-all-outgoing :- GameState
+  [game-state :- GameState]
+  (assoc-in game-state [:outbox] (s/as-queue [])))
+
+(s/defn add-incoming :- GameState
+  [game-state :- GameState
+   client-id :- s/Str
+   msg :- IncomingMsg]
+  (update-in game-state [:inbox] conj [client-id msg]))
+
+(s/defn add-all-incoming :- GameState
+  [game-state :- GameState
+   msgs :- [(s/pair s/Str "client-id" IncomingMsg "msg")]]
+  (reduce #(add-incoming %1 (first %2) (second %2)) game-state msgs))
+
+(s/defn broadcast-incoming :- GameState
+  [game-state :- GameState
+   msg :- IncomingMsg]
+  (reduce #(add-incoming %1 %2 msg)
+          game-state
+          (keys (:mediaries game-state))))
+
+(s/defn peek-all-incoming :- (s/queue (s/pair s/Str "client-id" IncomingMsg "msg"))
+  [game-state :- GameState]
+  (:inbox game-state))
+
+(s/defn pop-all-incoming :- GameState
+  [game-state :- GameState]
+  (assoc-in game-state [:inbox] (s/as-queue [])))
 
 ;;;;;; Boats ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -126,7 +230,7 @@
 (defrecord Boat [sail-theta rudder-theta pos v a theta
                  alpha omega mass length throttle]
   Entity
-  (update- [_ id game-state]
+  (tick-entity- [_ id game-state]
     ;; TODO: compute net force and torque, then apply to
     ;; velocity and position
     (let [current (vsub (:current game-state) v)
@@ -148,9 +252,19 @@
           a (vdiv f [mass mass])
           v (vadd v (vmul a [secs-per-tick secs-per-tick]))
           pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))]
-      (update-entity game-state id
-                     (Boat. sail-theta rudder-theta pos v a theta
-                            alpha omega mass length throttle)))))
+      (-> game-state
+          (broadcast-outgoing
+           ["boat-update"
+            {:id id
+             :pos pos
+             :v v
+             :theta theta
+             :rudder-theta rudder-theta
+             :throttle throttle}])
+          (update-entity
+           id
+           (Boat. sail-theta rudder-theta pos v a theta
+                  alpha omega mass length throttle))))))
 
 (s/defschema SBoat
   (s/both Boat
@@ -181,6 +295,31 @@
    3.6         ; m
    0.0         ; 0-1
    ))
+
+(defn clamp [low high value]
+  (max low (min high value)))
+
+(defn set-field [state id field value]
+  (if-let [entity (get-entity state id)]
+    (update-entity state id (assoc entity field value))
+    (do (println "No such entity " id)
+        state)))
+
+
+(defrecord PlayerClientMediary [boat-id]
+  ClientMediary
+  (handle-message- [_ game-state [tag body]]
+    (case tag
+      "set-rudder-theta"
+      (set-field game-state boat-id :rudder-theta
+                 (clamp (/ Math/PI -4) (/ Math/PI 4) body))
+
+      "set-throttle"
+      (set-field game-state boat-id :throttle
+                 (clamp 0 1 body))
+
+      (do (println "Unknown message tag " tag)
+          game-state))))
 
 ;;;;;; Wake Curves ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -217,40 +356,38 @@
        (reduce update-wake-curve-point)
        (assoc-in game-state [:objects id :points])))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; Game tick
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; Message processing
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+(s/defn handle-message :- GameState
+  [game-state :- GameState
+   msg :- [(s/one s/Str "client-id") (s/one IncomingMsg "msg")]]
+  (let [[client-id [tag :as msg]] msg]
+    (cond
+      (= "connect" tag)
+      (let [[game-state boat-id] (add-entity game-state (boat [0 0]))]
+        (-> game-state
+            (add-mediary client-id (PlayerClientMediary. boat-id))
+            (add-outgoing client-id ["set-boat-id" boat-id])
+            (add-outgoing client-id ["env-update"
+                                     {:wind (:wind game-state)
+                                      :current (:current game-state)}])))
 
-(def message-handlers
-  {"connect"
-   (fn [state id _]
-     (first (add-entity state (boat [0 0]) id)))
+      (= "disconnect" tag)
+      (remove-mediary game-state client-id)
 
-   "disconnect"
-   (fn [state id _]
-     (remove-entity state id))
+      :else
+      (if-let [mediary (get-mediary game-state client-id)]
+        (handle-message- mediary game-state msg)
+        (do (println "Unprocessed message for" client-id ":" msg)
+            game-state)))))
 
-   "set-rudder-theta"
-   (fn [state id theta]
-     (if (get-in state [:entities id])
-       (let [theta (cond
-                     (> theta (/ Math/PI 4)) (/ Math/PI 4)
-                     (< theta (/ Math/PI -4)) (/ Math/PI -4)
-                     :else theta)]
-         (assoc-in state [:entities id :rudder-theta] theta))
-       state))
+(s/defn tick :- GameState
+  "Compute one game tick, producing a new game state"
+  [game-state :- GameState]
+  (as-> game-state %
+    (reduce handle-message % (peek-all-incoming %))
+    (pop-all-incoming %)
+    (reduce-kv tick-entity % (:entities %))
+    (update-in % [:t] inc)))
 
-   "set-throttle"
-   (fn [state id throttle]
-     (if (get-in state [:entities id])
-       (let [throttle (max 0 (min 1 throttle))]
-         (assoc-in state [:entities id :throttle] throttle))
-       state))})
-
-(defn process-message
-  [state [id [tag body]]]
-  (if-let [handler (get message-handlers tag)]
-    (handler state id body)
-    (do (prn :unrecognized-message tag)
-        state)))
