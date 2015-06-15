@@ -57,7 +57,8 @@
    (Msg "set-boat-id" s/Num)
    (Msg "env-update" EnvironmentUpdate)
    (Msg "boat-update" BoatUpdate)
-   (Msg "wake-segment" WakeSegment)))
+   (Msg "wake-segment" WakeSegment)
+   (Msg "tick" s/Int)))
 
 (defprotocol ClientMediary
   "The server-side representative of a connected client,
@@ -452,5 +453,6 @@
     (reduce handle-message % (peek-all-incoming %))
     (pop-all-incoming %)
     (reduce-kv tick-entity % (:entities %))
+    (broadcast-outgoing % ["tick" (:t %)])
     (update-in % [:t] inc)))
 

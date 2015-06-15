@@ -26,7 +26,7 @@
                 (new-client client-id)
                 (m/tick))
           msgs (m/peek-all-outgoing g)]
-      (is (= 3 (count msgs)))
+      (is (= 4 (count msgs)))
       (is (= [client-id ["set-boat-id" 0]] (first msgs)))
       (is (m/get-mediary g client-id))
       (is (m/get-entity g 0))
