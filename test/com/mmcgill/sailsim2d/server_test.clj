@@ -4,6 +4,8 @@
             [com.mmcgill.sailsim2d.server :as server])
   (:use [clojure.test]))
 
+(use-fixtures :once schema.test/validate-schemas)
+
 (deftest test-client-connection-disconnection
   ;; start a server with an in-process client manager
   (let [client-mgr (server/in-process-client-manager)

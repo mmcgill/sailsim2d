@@ -45,3 +45,18 @@
                 :throttle 0.0}]]
              (nth msgs 2))))))
 
+(defn ticks [game-state n]
+  (nth (iterate m/tick game-state) n))
+
+(deftest test-wake-segments
+  (testing "wake segments added above wake speed")
+  (let [client-id "1"
+        g (-> (m/game-state)
+              (connected-client client-id)
+              (assoc-in [:entities 0 :v] [(+ m/wake-speed 1) 0])
+              (ticks m/wake-ticks-per-segment))
+        msgs (->> g
+                  (m/peek-all-outgoing)
+                  (filter #(= "wake-segment" (first (second %1)))))]
+    (= 2 (count msgs))))
+

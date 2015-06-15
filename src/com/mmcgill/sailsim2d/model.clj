@@ -9,8 +9,10 @@
 (def secs-per-tick (/ 1.0 ticks-per-sec))
 (def water-rho 1000.0) ; kg/m^3
 (def air-rho 1.225)    ; kg/m^3
-(def wake-curve-ttl 5.0) ; seconds
-(def motor-accel 2.0) ; m/s^2
+(def wake-ttl 5.0)     ; seconds
+(def wake-speed 1.0)   ; m/s
+(def wake-ticks-per-segment 30)
+(def motor-accel 2.0)  ; m/s^2
 
 ;;;;;; Game state and ticks ;;;;;;;;;;;;;;
 
@@ -44,11 +46,18 @@
   {:wind Vec
    :current Vec})
 
+(s/defschema WakeSegment
+  {:id Id
+   :pos Vec
+   :v Vec
+   :ttl s/Num})
+
 (s/defschema OutgoingMsg
   (s/either
    (Msg "set-boat-id" s/Num)
    (Msg "env-update" EnvironmentUpdate)
-   (Msg "boat-update" BoatUpdate)))
+   (Msg "boat-update" BoatUpdate)
+   (Msg "wake-segment" WakeSegment)))
 
 (defprotocol ClientMediary
   "The server-side representative of a connected client,
@@ -82,6 +91,10 @@
     :outbox (s/as-queue [])
     :inbox (s/as-queue [])
     :next-id 0}))
+
+(s/defn fresh-id :- [(s/one GameState "state") (s/one Id "id")]
+  [game-state]
+  [(update-in game-state [:next-id] inc) (:next-id game-state)])
 
 (s/defn add-entity :- [(s/one GameState "state") (s/one Id "id")]
 
@@ -140,6 +153,11 @@
           game-state
           (keys (:mediaries game-state))))
 
+(s/defn broadcast-all-outgoing :- GameState
+  [game-state :- GameState
+   msgs :- [OutgoingMsg]]
+  (reduce broadcast-outgoing game-state msgs))
+
 (s/defn peek-all-outgoing :- (s/queue (s/pair s/Str "client-id" OutgoingMsg "msg"))
   [game-state :- GameState]
   (:outbox game-state))
@@ -165,6 +183,11 @@
   (reduce #(add-incoming %1 %2 msg)
           game-state
           (keys (:mediaries game-state))))
+
+(s/defn broadcast-all-incoming :- GameState
+  [game-state :- GameState
+   msgs :- [IncomingMsg]]
+  (reduce broadcast-incoming game-state msgs))
 
 (s/defn peek-all-incoming :- (s/queue (s/pair s/Str "client-id" IncomingMsg "msg"))
   [game-state :- GameState]
@@ -227,8 +250,40 @@
         speed (vmag current)]
     (* r rudder-coefficient speed speed (+ (Math/sin theta) #_(Math/sin (* 3 theta))))))
 
+(s/defn fresh-wake-ids [game-state]
+  (let [[game-state lwake-id] (fresh-id game-state)
+        [game-state rwake-id] (fresh-id game-state)]
+    [game-state lwake-id rwake-id]))
+
+(s/defn wake-segments :- [(s/one GameState "state")
+                          (s/one (s/maybe Id) "lwake-id")
+                          (s/one (s/maybe Id) "rwake-id")]
+  [game-state pos v lwake-id rwake-id]
+  (if (> (vmag v) wake-speed)
+    (let [[game-state lwake-id rwake-id]
+          (if (nil? lwake-id)
+            (fresh-wake-ids game-state)
+            [game-state lwake-id rwake-id])]
+      (if (= (mod (:t game-state) wake-ticks-per-segment) 0)
+        [(-> game-state
+             (broadcast-outgoing ["wake-segment"
+                                  {:id lwake-id
+                                   :pos pos
+                                   :v (vrot v (- (/ Math/PI 2)))
+                                   :ttl wake-ttl}])
+             (broadcast-outgoing ["wake-segment"
+                                  {:id rwake-id
+                                   :pos pos
+                                   :v (vrot v (/ Math/PI 2))
+                                   :ttl wake-ttl}]))
+         lwake-id
+         rwake-id]
+        [game-state lwake-id rwake-id]))
+    [game-state nil nil]))
+
 (defrecord Boat [sail-theta rudder-theta pos v a theta
-                 alpha omega mass length throttle]
+                 alpha omega mass length throttle
+                 lwake-id rwake-id]
   Entity
   (tick-entity- [_ id game-state]
     ;; TODO: compute net force and torque, then apply to
@@ -251,7 +306,11 @@
           ;; linear dynamics
           a (vdiv f [mass mass])
           v (vadd v (vmul a [secs-per-tick secs-per-tick]))
-          pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))]
+          pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))
+
+          ;; wake
+          [game-state lwake-id rwake-id] (wake-segments game-state pos v lwake-id rwake-id)
+          ]
       (-> game-state
           (broadcast-outgoing
            ["boat-update"
@@ -264,7 +323,8 @@
           (update-entity
            id
            (Boat. sail-theta rudder-theta pos v a theta
-                  alpha omega mass length throttle))))))
+                  alpha omega mass length throttle
+                  lwake-id rwake-id))))))
 
 (s/defschema SBoat
   (s/both Boat
@@ -278,7 +338,9 @@
            :omega        s/Num
            :mass         s/Num
            :length       s/Num
-           :throttle     s/Num}))
+           :throttle     s/Num
+           :lwake-id     (s/maybe Id)
+           :rwake-id     (s/maybe Id)}))
 
 (s/defn boat :- SBoat
   [pos :- Vec]
@@ -294,7 +356,8 @@
    56.0        ; kg
    3.6         ; m
    0.0         ; 0-1
-   ))
+   nil
+   nil))
 
 (defn clamp [low high value]
   (max low (min high value)))
