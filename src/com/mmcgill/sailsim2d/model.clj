@@ -40,7 +40,8 @@
    :v Vec
    :theta s/Num
    :rudder-theta s/Num
-   :throttle s/Num})
+   :throttle s/Num
+   :length s/Num})
 
 (s/defschema EnvironmentUpdate
   {:wind Vec
@@ -50,7 +51,8 @@
   {:id Id
    :pos Vec
    :v Vec
-   :ttl s/Int})
+   :ttl s/Int
+   (s/optional-key :source-id) Id})
 
 (s/defschema OutgoingMsg
   (s/either
@@ -259,26 +261,29 @@
 (s/defn wake-segments :- [(s/one GameState "state")
                           (s/one (s/maybe Id) "lwake-id")
                           (s/one (s/maybe Id) "rwake-id")]
-  [game-state pos v lwake-id rwake-id]
+  [game-state id pos v theta lwake-id rwake-id]
   (if (> (vmag v) wake-speed)
     (let [[game-state lwake-id rwake-id]
           (if (nil? lwake-id)
             (fresh-wake-ids game-state)
             [game-state lwake-id rwake-id])]
       (if (= (mod (:t game-state) wake-ticks-per-segment) 0)
-        [(-> game-state
-             (broadcast-outgoing ["wake-segment"
-                                  {:id lwake-id
-                                   :pos pos
-                                   :v (vrot v (- (/ Math/PI 2)))
-                                   :ttl wake-ttl}])
-             (broadcast-outgoing ["wake-segment"
-                                  {:id rwake-id
-                                   :pos pos
-                                   :v (vrot v (/ Math/PI 2))
-                                   :ttl wake-ttl}]))
-         lwake-id
-         rwake-id]
+        (let [p (vadd pos (vrot [-1.8,0] theta))]
+          [(-> game-state
+               (broadcast-outgoing ["wake-segment"
+                                    {:id lwake-id
+                                     :pos p
+                                     :v (vrot v (- (/ (* 2 Math/PI) 3)))
+                                     :ttl wake-ttl
+                                     :head-id id}])
+               (broadcast-outgoing ["wake-segment"
+                                    {:id rwake-id
+                                     :pos p
+                                     :v (vrot v (/ (* 2 Math/PI) 3))
+                                     :ttl wake-ttl
+                                     :head-id id}]))
+           lwake-id
+           rwake-id])
         [game-state lwake-id rwake-id]))
     [game-state nil nil]))
 
@@ -310,7 +315,7 @@
           pos (vadd pos (vmul v [secs-per-tick secs-per-tick]))
 
           ;; wake
-          [game-state lwake-id rwake-id] (wake-segments game-state pos v lwake-id rwake-id)
+          [game-state lwake-id rwake-id] (wake-segments game-state id pos v theta lwake-id rwake-id)
           ]
       (-> game-state
           (broadcast-outgoing
@@ -320,7 +325,8 @@
              :v v
              :theta theta
              :rudder-theta rudder-theta
-             :throttle throttle}])
+             :throttle throttle
+             :length length}])
           (update-entity
            id
            (Boat. sail-theta rudder-theta pos v a theta

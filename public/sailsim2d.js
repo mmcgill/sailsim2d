@@ -58,22 +58,53 @@ var sailsim = (function () {
         drawArrow(ctx, posx, posy, posx+vx, posy+vy);
     }
 
+    function vadd(v1, v2) {
+        return [v1[0]+v2[0], v1[1]+v2[1]];
+    }
+
+    function vmul(v1, v2) {
+        return [v1[0]*v2[0], v1[1]*v2[1]];
+    }
+
+    function vnorm(v) {
+        var l = Math.sqrt(v[0]*v[0]+v[1]*v[1]);
+        return [v[0] / l, v[1] / l];
+    }
+
+    function vrot(v,theta) {
+        var a = Math.sin(theta);
+        var b = Math.cos(theta);
+        return [(v[0] * b) - (v[1] * a), (v[0] * a) + (v[1] * b)];
+    }
+
     function drawWakeCurve (ctx) {
         if (this.segments.length === 0)
             return;
         
-        ctx.strokeStyle = "blue";
         ctx.lineWidth = 0.5;
+        ctx.lineCap = "round";
+        ctx.globalCompositeOperation = "destination-over";
         ctx.beginPath();
         var seg = this.segments[0];
         ctx.moveTo(seg.pos[0], seg.pos[1]);
         for (var i=0; i<this.segments.length; i++) {
             seg = this.segments[i];
+            var c = 255-Math.floor(255*Math.max(0,Math.min(seg.ttl / 200)));
+            ctx.strokeStyle = "rgb("+c+","+c+",255)";
             ctx.lineTo(seg.pos[0], seg.pos[1]);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(seg.pos[0], seg.pos[1]);
+        }
+        var head = my.entities[this.headId];
+        if (head != null) {
+            var p = vadd(vrot([-head.length/2,0],head.theta),
+                         head.pos);
+            ctx.lineTo(p[0], p[1]);
         }
         ctx.stroke();
     }
-    
+
     function drawFrame (timestamp) {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
         ctx.save();
@@ -91,9 +122,11 @@ var sailsim = (function () {
             ctx.strokeStyle = "blue";
             ctx.lineWidth = 1/my.pixelsPerMeter;
             drawVectorGrid(ctx, b.pos, 10, my.current);
+            ctx.save();
             for (var id in my.entities) {
                 my.entities[id].draw(ctx);
             }
+            ctx.restore();
         }
         ctx.restore();
 
@@ -102,12 +135,6 @@ var sailsim = (function () {
 
     ////////////////////////////////////////////
     // client-side tick functions
-    function vadd(v1, v2) {
-        return [v1[0]+v2[0], v1[1]+v2[1]];
-    }
-    function vmul(v1, v2) {
-        return [v1[0]*v2[0], v1[1]*v2[1]];
-    }
     // TODO: Get from server!
     var secsPerTick = 1.0/30.0; 
 
@@ -150,6 +177,7 @@ var sailsim = (function () {
                 id: seg.id,
                 draw: drawWakeCurve,
                 tick: tickWakeCurve,
+                headId: seg['head-id'],
                 segments: []
             };
             my.entities[seg.id] = wakeCurve;
