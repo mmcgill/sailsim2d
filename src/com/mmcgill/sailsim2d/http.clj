@@ -14,7 +14,7 @@
     [:body
      [:h1 "SailSim 2D"]
      [:div {:style "display:none;"}
-      [:img {:id "boat" :src "/static/boat.jpg"}]]
+      [:img {:id "boat" :src "/static/boat.png"}]]
      [:canvas {:id "sailsim_canvas" :width "640" :height "480" :style "border:1px dotted;"}]]]))
 
 (defroutes app
