@@ -212,6 +212,9 @@
 (defn vangle [[x y]] (Math/atan2 y x))
 (defn todeg [rad] (Math/toDegrees rad))
 (defn vmag [[x y]] (Math/sqrt (+ (* x x) (* y y))))
+(defn vnorm [[x y :as v]]
+  (let [n (vmag v)]
+    [(/ x n) (/ y n)]))
 
 (def rudder-coefficient "Scales the rudder torque"      10#_1.5)
 (def rotation-damping   "Damps rotation of the boat"    1.5)
