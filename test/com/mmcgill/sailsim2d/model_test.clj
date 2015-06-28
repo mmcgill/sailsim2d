@@ -42,7 +42,8 @@
                 :v [0.0 0.0]
                 :theta 0.0
                 :rudder-theta 0.0
-                :throttle 0.0}]]
+                :throttle 0.0
+                :length 3.6}]]
              (nth msgs 2))))))
 
 (defn ticks [game-state n]

@@ -52,7 +52,7 @@
    :pos Vec
    :v Vec
    :ttl s/Int
-   (s/optional-key :source-id) Id})
+   (s/optional-key :head-id) Id})
 
 (s/defschema OutgoingMsg
   (s/either
