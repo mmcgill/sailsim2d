@@ -215,6 +215,8 @@
 (defn vnorm [[x y :as v]]
   (let [n (vmag v)]
     [(/ x n) (/ y n)]))
+(defn vdot [[x1 y1] [x2 y2]]
+  (+ (* x1 x2) (* y1 y2)))
 
 (def rudder-coefficient "Scales the rudder torque"      10#_1.5)
 (def rotation-damping   "Damps rotation of the boat"    1.5)
@@ -394,40 +396,67 @@
       (do (println "Unknown message tag " tag)
           game-state))))
 
-;;;;;; Wake Curves ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;; Course ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-#_(defn add-wake-curve
-  "Add a new wake curve to the game state, returning its id.
+;; A CourseSpec is a sequence of [point,width] pairs, each
+;; pair representing the center point of a pair of bouys and
+;; their distance from one another. A [point,width] pair is
+;; called a course spec vertex. The the line
+;; containing both bouys bisects the angle formed by the
+;; vertex's center point and the center points of the
+;; preceeding and following course vertices. The sequence of
+;; course spec vertices should be understood to loop, with the
+;; last vertex preceding the first vertex.
 
-  A wake curve is a vector of points, each point having a position
-  and velocity. The client renders the curve by drawing line segments
-  between adjacent points. Each tick, each point's position is updated
-  according to its velocity."
-  [game-state pos v]
-  (add-object
-   game-state
-   {:type   :wake-curve
-    :points [{:pos pos, :v v, :ttl wake-curve-ttl}]}))
+;; The the course is the union of the quads formed from
+;; the bouy locations for each pair of adjacent course vertices.
 
-#_(defn extend-wake-curve
-  "Extend a wake curve with a new segment."
-  [game-state id pos v]
-  (update-in game-state [:objects id] conj
-             {:pos pos :v v :ttl wake-curve-ttl}))
+(s/defschema CourseSpec
+  [{:center Vec, :width s/Num}])
 
-#_(defn update-wake-curve-point [{:keys [pos v]}])
+(s/defschema Course
+  [{:left Vec, :right Vec}])
 
-#_(defmethod tick-object :wake-curve
-  [{:keys [current] :as game-state}
-   id
-   {:keys [id points]}]
-  ;; update each point in the curve
-  (if (empty? points)
-    (remove-object game-state id))
-  (->> points
-       (filter #(> 0 (:ttl %)))
-       (reduce update-wake-curve-point)
-       (assoc-in game-state [:objects id :points])))
+(defn side
+  "Returns :left if the point p is to the left of the vector from a to b,
+  :colinear if it's colinear with a and b, and :right if it's to the right of the vector from a to b."
+  [[ax ay] [bx by] [px py]]
+  (let [det (- (* (- bx ax) (- py ay)) (* (- by ay) (- px ax)))]
+    (cond
+      (< det 0) :left
+      (> det 0) :right
+      :else     :colinear)))
+
+(defn vbisect
+  "Given points a,b,c, return the unit vector bisecting ba and bc.
+  If the points are colinear, return the unit vector along ba
+  rotated pi/2 radians clockwise."
+  [a b c]
+  (let [u (vnorm (vsub a b))
+        v (vnorm (vsub c b))
+        w (vadd u v)]
+    (if (= [0.0 0.0] w)
+      (vrot u (/ Math/PI 2))
+      (vnorm (vadd u v)))))
+
+(defn looped [col]
+  (lazy-seq
+   (concat col (looped col))))
+
+(s/defn build-course :- Course
+  [spec :- CourseSpec]
+  (when (< (count spec) 3)
+    (throw (ex-info "course spec must have at least three vertices" {:spec spec})))
+  (let [vertices (looped (map :center spec))
+        triples (map vector
+                     (drop (dec (count spec)) vertices)
+                     spec
+                     (drop (inc (count spec)) vertices))]
+    (for [[a {:keys [center width]} c] triples]
+      (let [w (cond-> (vmul (vbisect a center c) [(/ width 2.0) (/ width 2.0)])
+                (= :left (side a c center)) (vmul [-1 -1]))]
+        {:left (vadd center w), :right (vsub center w)}))))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; Game tick

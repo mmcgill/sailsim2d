@@ -50,14 +50,34 @@
   (nth (iterate m/tick game-state) n))
 
 (deftest test-wake-segments
-  (testing "wake segments added above wake speed")
-  (let [client-id "1"
-        g (-> (m/game-state)
-              (connected-client client-id)
-              (assoc-in [:entities 0 :v] [(+ m/wake-speed 1) 0])
-              (ticks m/wake-ticks-per-segment))
-        msgs (->> g
-                  (m/peek-all-outgoing)
-                  (filter #(= "wake-segment" (first (second %1)))))]
-    (= 2 (count msgs))))
+  (testing "wake segments added above wake speed"
+    (let [client-id "1"
+          g (-> (m/game-state)
+                (connected-client client-id)
+                (assoc-in [:entities 0 :v] [(+ m/wake-speed 1) 0])
+                (ticks m/wake-ticks-per-segment))
+          msgs (->> g
+                    (m/peek-all-outgoing)
+                    (filter #(= "wake-segment" (first (second %1)))))]
+      (is (= 2 (count msgs))))))
+
+(defn =ish [a b epsilon]
+  (if (coll? a)
+    (reduce #(and %1 %2) true (map #(=ish %1 %2 epsilon) a b))
+    (< (Math/abs (- a b)) epsilon)))
+
+(deftest test-build-course
+  (testing "course must have at least 3 vertices"
+    (is (thrown? clojure.lang.ExceptionInfo (m/build-course [{:center [0 0], :width 5}]))))
+  (testing "basic course construction"
+    (let [width (* 5 (Math/sqrt 2))
+          course (m/build-course
+                  [{:center [0 0], :width width}
+                   {:center [10 0], :width width}
+                   {:center [10 10], :width width}
+                   {:center [0 10], :width width}])]
+      (is (=ish [-2.5 -2.5] (:left (nth course 0)) 0.0001))
+      (is (=ish [2.5 2.5] (:right (nth course 0)) 0.0001))
+      (is (=ish [12.5 -2.5] (:left (nth course 1)) 0.0001))
+      (is (=ish [7.5 2.5] (:right (nth course 1)) 0.0001)))))
 
