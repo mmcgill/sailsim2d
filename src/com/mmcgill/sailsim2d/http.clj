@@ -10,12 +10,18 @@
    [:html
     [:head
      [:script {:src "/static/sailsim2d.js"}]
+     [:style {:media "screen" :type "text/css"}
+      ;; Having to jump to strings here is ugly
+      "html, body {"
+      "  width: 90%;"
+      "  height: 90%;"
+      "  margin: 0px;"
+      "}"]
      [:title "SailSim 2D"]]
     [:body
-     [:h1 "SailSim 2D"]
      [:div {:style "display:none;"}
       [:img {:id "boat" :src "/static/boat.png"}]]
-     [:canvas {:id "sailsim_canvas" :width "640" :height "480" :style "border:1px dotted;"}]]]))
+     [:canvas {:id "sailsim_canvas" #_#_:style "border:1px dotted;"}]]]))
 
 (defroutes app
   (GET "/"           [] index)

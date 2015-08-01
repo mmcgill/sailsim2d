@@ -122,6 +122,8 @@ var sailsim = (function () {
 
     function drawFrame (timestamp) {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
+        ctx.canvas.width = window.innerWidth;
+        ctx.canvas.height = window.innerHeight;
         ctx.save();
         ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
         var b = getBoat();
