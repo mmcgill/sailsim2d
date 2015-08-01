@@ -66,18 +66,47 @@
     (reduce #(and %1 %2) true (map #(=ish %1 %2 epsilon) a b))
     (< (Math/abs (- a b)) epsilon)))
 
-(deftest test-build-course
+(deftest test-course
   (testing "course must have at least 3 vertices"
-    (is (thrown? clojure.lang.ExceptionInfo (m/build-course [{:center [0 0], :width 5}]))))
+    (is (thrown? clojure.lang.ExceptionInfo (m/course [{:center [0 0], :width 5}]))))
   (testing "basic course construction"
     (let [width (* 5 (Math/sqrt 2))
-          course (m/build-course
-                  [{:center [0 0], :width width}
-                   {:center [10 0], :width width}
-                   {:center [10 10], :width width}
-                   {:center [0 10], :width width}])]
+          course (:segments
+                  (m/course
+                   [{:center [0 0], :width width}
+                    {:center [10 0], :width width}
+                    {:center [10 10], :width width}
+                    {:center [0 10], :width width}]))]
       (is (=ish [-2.5 -2.5] (:left (nth course 0)) 0.0001))
       (is (=ish [2.5 2.5] (:right (nth course 0)) 0.0001))
       (is (=ish [12.5 -2.5] (:left (nth course 1)) 0.0001))
       (is (=ish [7.5 2.5] (:right (nth course 1)) 0.0001)))))
+
+(deftest test-course-tick-entity
+  (let [client-id "1"
+        width (* 5 (Math/sqrt 2))
+        g (-> (m/game-state)
+              (m/add-entity (m/course
+                             [{:center [0 0], :width width}
+                              {:center [10 0], :width width}
+                              {:center [10 10], :width width}
+                              {:center [0 10], :width width}]))
+              first
+              (ticks 10)
+              (m/pop-all-outgoing)
+              (new-client client-id)
+              (m/tick))
+        msgs (m/peek-all-outgoing g)]
+    ;; when a new client joins, send it the course segments
+    (is (some #(and (= "1" (first %))
+                    (= "course" (first (second %)))
+                    (= [{:left [-2.5 -2.5], :right [2.5 2.5]}
+                        {:left [12.5 -2.5], :right [7.5 2.5]}
+                        {:left [12.5 12.5], :right [7.5 7.5]}
+                        {:left [-2.5 12.5], :right [2.5 7.5]}]
+                       (second (second %))))
+              msgs))
+    ;; don't resend the segments to previously notified clients
+    (is (not (some #(= "course" (first (second %)))
+                   (m/peek-all-outgoing (m/tick (m/pop-all-outgoing g))))))))
 

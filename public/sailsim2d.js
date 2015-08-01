@@ -105,6 +105,21 @@ var sailsim = (function () {
         ctx.stroke();
     }
 
+    function drawBouy(ctx, bouy) {
+        ctx.beginPath();
+        ctx.arc(bouy[0], bouy[1], 0.5, 0, Math.PI*2, true);
+        ctx.fill();
+    }
+
+    function drawCourse(ctx) {
+        for (var i=0; i<this.segments.length; i++) {
+            var segment = this.segments[i];
+            ctx.strokeStyle = "red";
+            drawBouy(ctx, segment.right);
+            drawBouy(ctx, segment.left);
+        }
+    }
+
     function drawFrame (timestamp) {
         var ctx = document.getElementById("sailsim_canvas").getContext("2d");
         ctx.save();
@@ -197,6 +212,15 @@ var sailsim = (function () {
         }
     }
 
+    function handleCourse(course) {
+        var c = {
+            draw: drawCourse,
+            tick: function(t) {},
+            segments: course
+        };
+        my.entities["course"]=c;
+    }
+
     var msgHandlers = {
         'set-boat-id': handleSetBoatId,
         'id': handleId,
@@ -204,6 +228,7 @@ var sailsim = (function () {
         'env-update': handleEnvUpdate,
         'wake-segment': handleWakeSegment,
         'tick': handleTick,
+        'course': handleCourse,
     };
 
     ////////////////////////////////////////////

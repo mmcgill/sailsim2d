@@ -29,10 +29,16 @@
 (defn go [& {:keys [websocket-port http-port]
              :or {websocket-port 9090, http-port 8080}}]
   (stop)
-  (let [mgr (ws/websocket-manager {:port websocket-port})]
+  (let [mgr (ws/websocket-manager {:port websocket-port})
+        width (* 5 (Math/sqrt 2))
+        g (-> (m/game-state [6 3] [0.3 0.2])
+              (m/add-entity
+               (m/course
+                (m/circular-course-spec [0 0] 50 10 15)))
+              first)]
     (try
-      (reset! system {:stop-ch (s/start-server (m/game-state [6 3] [0.3 0.2]) mgr)
-                     :stop-fn (http/start {:port http-port})
+      (reset! system {:stop-ch (s/start-server g mgr)
+                      :stop-fn (http/start {:port http-port})
                       :mgr mgr})
       (catch Throwable ex
         (s/shutdown mgr)

@@ -1,6 +1,7 @@
 (ns com.mmcgill.sailsim2d.model
   "The sailing model and physics calculations."
   (:require [clojure.pprint :refer [pprint]]
+            [clojure.set :as set]
             [schema.core :as s]))
 
 ;;;;;; Constants ;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -60,7 +61,8 @@
    (Msg "env-update" EnvironmentUpdate)
    (Msg "boat-update" BoatUpdate)
    (Msg "wake-segment" WakeSegment)
-   (Msg "tick" s/Int)))
+   (Msg "tick" s/Int)
+   (Msg "course" [{:left Vec, :right Vec}])))
 
 (defprotocol ClientMediary
   "The server-side representative of a connected client,
@@ -132,6 +134,10 @@
    id :- s/Str
    mediary :- (s/protocol ClientMediary)]
   (update-in game-state [:mediaries] assoc id mediary))
+
+(s/defn list-client-ids :- [s/Str]
+  [game-state :- GameState]
+  (keys (:mediaries game-state)))
 
 (s/defn get-mediary :- (s/maybe (s/protocol ClientMediary))
   [game-state :- GameState, id :- s/Str]
@@ -414,8 +420,28 @@
 (s/defschema CourseSpec
   [{:center Vec, :width s/Num}])
 
-(s/defschema Course
-  [{:left Vec, :right Vec}])
+(defrecord Course [segments notified-clients]
+  Entity
+  (tick-entity- [_ id game-state]
+    ;; Send new clients the course segments.
+    (let [current-clients (set (list-client-ids game-state))
+          new-clients (set/difference current-clients notified-clients)]
+      (if-not (empty? new-clients)
+        (reduce
+         #(add-outgoing %1 %2 ["course" segments])
+         (update-entity game-state id (Course. segments current-clients))
+         new-clients)
+        game-state))
+    
+    ;; TODO: add game mechanic where boats outside the course are
+    ;; penalized 
+    ))
+
+(s/defschema SCourse
+  (s/both
+   Course
+   {:segments [{:left Vec, :right Vec}]
+    :notified-clients #{s/Str}}))
 
 (defn side
   "Returns :left if the point p is to the left of the vector from a to b,
@@ -443,7 +469,7 @@
   (lazy-seq
    (concat col (looped col))))
 
-(s/defn build-course :- Course
+(s/defn course :- Course
   [spec :- CourseSpec]
   (when (< (count spec) 3)
     (throw (ex-info "course spec must have at least three vertices" {:spec spec})))
@@ -452,10 +478,25 @@
                      (drop (dec (count spec)) vertices)
                      spec
                      (drop (inc (count spec)) vertices))]
-    (for [[a {:keys [center width]} c] triples]
-      (let [w (cond-> (vmul (vbisect a center c) [(/ width 2.0) (/ width 2.0)])
-                (= :left (side a c center)) (vmul [-1 -1]))]
-        {:left (vadd center w), :right (vsub center w)}))))
+    (Course.
+     (vec
+      (for [[a {:keys [center width]} c] triples]
+        (let [w (cond-> (vmul (vbisect a center c) [(/ width 2.0) (/ width 2.0)])
+                  (= :left (side a c center)) (vmul [-1 -1]))]
+          {:left (vadd center w), :right (vsub center w)})))
+     #{})))
+
+(s/defn circular-course-spec :- CourseSpec
+  [center :- Vec
+   radius :- s/Num
+   width :- s/Num
+   bouy-spacing :- s/Num]
+  (let [arc-len (/ bouy-spacing radius)]
+    (for [theta (range 0 (* 2 Math/PI) arc-len)]
+      {:center (vadd center
+                     [(* radius (Math/cos theta))
+                      (* radius (Math/sin theta))])
+       :width width})))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
