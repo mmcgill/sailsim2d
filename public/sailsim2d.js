@@ -223,6 +223,10 @@ var sailsim = (function () {
         my.entities["course"]=c;
     }
 
+    function removeEntity(id) {
+        delete my.entities[id];
+    }
+
     var msgHandlers = {
         'set-boat-id': handleSetBoatId,
         'id': handleId,
@@ -231,6 +235,7 @@ var sailsim = (function () {
         'wake-segment': handleWakeSegment,
         'tick': handleTick,
         'course': handleCourse,
+        'remove-entity': removeEntity
     };
 
     ////////////////////////////////////////////

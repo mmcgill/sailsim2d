@@ -62,7 +62,8 @@
    (Msg "boat-update" BoatUpdate)
    (Msg "wake-segment" WakeSegment)
    (Msg "tick" s/Int)
-   (Msg "course" [{:left Vec, :right Vec}])))
+   (Msg "course" [{:left Vec, :right Vec}])
+   (Msg "remove-entity" Id)))
 
 (defprotocol ClientMediary
   "The server-side representative of a connected client,
@@ -125,9 +126,13 @@
   [game-state :- GameState, id :- Id, entity :- (s/protocol Entity)]
   (update-in game-state [:entities] assoc id entity))
 
+(declare broadcast-outgoing)
+
 (s/defn remove-entity :- GameState
   [game-state :- GameState, id :- Id]
-  (update-in game-state [:entities] dissoc id))
+  (-> game-state
+      (update-in [:entities] dissoc id)
+      (broadcast-outgoing ["remove-entity" id])))
 
 (s/defn add-mediary :- GameState
   [game-state :- GameState
@@ -399,6 +404,9 @@
       (set-field game-state boat-id :throttle
                  (clamp 0 1 body))
 
+      "disconnect"
+      (remove-entity game-state boat-id)
+
       (do (println "Unknown message tag " tag)
           game-state))))
 
@@ -516,12 +524,11 @@
                                      {:wind (:wind game-state)
                                       :current (:current game-state)}])))
 
-      (= "disconnect" tag)
-      (remove-mediary game-state client-id)
 
       :else
       (if-let [mediary (get-mediary game-state client-id)]
-        (handle-message- mediary game-state msg)
+        (cond-> (handle-message- mediary game-state msg)
+          (= "disconnect" tag) (remove-mediary client-id))
         (do (println "Unprocessed message for" client-id ":" msg)
             game-state)))))
 
